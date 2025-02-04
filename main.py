@@ -85,9 +85,9 @@ def get_completed_tasks(start_iso, end_iso, project_id = "1233330094"):
     # The returned JSON contains an 'items' key with the list of tasks.
     return data.get("items", [])
 
-def write_to_google_sheet(rows):
+def write_to_google_sheet(value_to_insert):
     """
-    Appends the given rows to the Google Sheet.
+    Appends the given value_to_insert to the Google Sheet.
     """
     scopes = ["https://www.googleapis.com/auth/spreadsheets"]
     credentials = Credentials.from_service_account_file(
@@ -95,15 +95,27 @@ def write_to_google_sheet(rows):
     )
     service = build('sheets', 'v4', credentials=credentials)
     
-    body = {"values": rows}
+    body = {"values": value_to_insert}
     result = service.spreadsheets().values().append(
         spreadsheetId=GOOGLE_SHEET_ID,
         range=SHEET_RANGE,
         valueInputOption="RAW",         # write the data as-is
-        insertDataOption="INSERT_ROWS",   # insert new rows for the data
+        # insertDataOption="OVERWRITE",   # insert new rows for the data
         body=body
     ).execute()
     
+    # wirte a value to a specific cell in the Google Sheet
+    # cell_name = "Sheet1!A1"
+    # body = {"values": [["Hello, world!"]]}
+    # result = service.spreadsheets().values().update(
+    #     spreadsheetId=GOOGLE_SHEET_ID,
+    #     range=cell_name,
+    #     valueInputOption="RAW",
+    #     body=body
+    # ).execute()
+
+
+
     updated_cells = result.get("updates", {}).get("updatedCells", 0)
     print(f"Successfully appended {updated_cells} cells to the Google Sheet.")
 
@@ -142,7 +154,7 @@ def get_rows_from_google_sheet(tab_name):
         spreadsheetId=GOOGLE_SHEET_ID,
         range=f"{tab_name}!A1:Z"
     ).execute()
-    print(result)
+    # print(result)
     values = result.get("values", [])
     return values
 
@@ -188,9 +200,29 @@ def main():
     
     short_year = start_iso[2:4]
     short_month = start_iso[5:7]
+    iso_date = start_iso[:10]
     current_tab_name = get_tab_name(short_year, short_month)
+    tabs_in_sheet = list_sheet_tabs()
+
+      # Verify that tab exists in the Google Sheet
+    if current_tab_name not in tabs_in_sheet:
+        print(f"Tab '{current_tab_name}' not found in the Google Sheet.")
+        return
     rows = get_rows_from_google_sheet(current_tab_name)
-    print(rows)
+    # loop through the rows and print them
+    i = 1
+    for row in rows:
+        if len(row) > 0:
+            if  row[0] == iso_date:
+                print(f"Found the row: {i} - {row}")
+                break
+        i += 1
+
+    cell_name = f"{current_tab_name}!E{i}"
+    
+
+
+    # print(rows)
 
     # print(tasks)
     # # Prepare the rows for Google Sheets.
@@ -203,20 +235,27 @@ def main():
     # Find the row with the same date as start_iso date in the A column
     # Write the tasks names, semi colon separted, to the Google Sheet in columns D for that row
 
-    tabs_in_sheet = list_sheet_tabs()
-    print("Tabs in the sheet:")
-    print(tabs_in_sheet)
+
+
     print("----------------")
 
+  
     
-    for task in tasks:
-        # Extract relevant details; adjust keys as needed based on the Todoist response.
-        task_name = task.get("content", "")
-        completed_at = task.get("completed_at", "")
-        project_id = task.get("project_id", "")
-        print(task_name)
-        print(completed_at)
-        print(project_id)
+    # Find correct row in the Google Sheet using the date format YYYY-MM-DD
+
+    
+
+    
+    # for task in tasks:
+    #     # Extract relevant details; adjust keys as needed based on the Todoist response.
+    #     task_name = task.get("content", "")
+    #     completed_at = task.get("completed_at", "")
+    #     project_id = task.get("project_id", "")
+    #     print(task_name)
+    #     print(completed_at)
+    #     print(project_id)
+
+
     # for task in tasks:
     #     # Extract relevant details; adjust keys as needed based on the Todoist response.
     #     task_name = task.get("content", "")
