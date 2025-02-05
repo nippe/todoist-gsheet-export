@@ -95,7 +95,7 @@ def write_to_google_sheet(value_to_insert, cell_name):
     )
     service = build('sheets', 'v4', credentials=credentials)
     
-    body = {"values": [value_to_insert]}
+    body = {"values": [[value_to_insert]]}
     result = service.spreadsheets().values().append(
         spreadsheetId=GOOGLE_SHEET_ID,
         range=cell_name,
@@ -180,6 +180,16 @@ def get_tab_name(year, month):
 
     return f"{month_dict[month]}-{year}"
 
+def split_date_string(date_iso_string):
+    """
+    Splits the date string in ISO format and returns the year and month.
+    """
+    short_year = date_iso_string[2:4]
+    short_month = date_iso_string[5:7]
+    short_iso_date = date_iso_string[:10]
+    return short_year, short_month, short_iso_date
+
+
 # --------------------------
 # MAIN EXECUTION
 # --------------------------
@@ -189,18 +199,19 @@ def main():
     start_iso, end_iso = get_yesterday_iso_range()
     print(f"Fetching tasks completed between {start_iso} and {end_iso}.")
 
+    
+    # Todoist - get project id for the specified project name
     project_id = get_project_id(TODOIST_PROJECT_NAME)
 
-    # Get the list of completed tasks from Todoist
+    # Todoist - Get the list of completed tasks from Todoist
     tasks = get_completed_tasks(start_iso, end_iso, project_id)
     
     if not tasks:
         print("No completed tasks found for yesterday.")
         return
     
-    short_year = start_iso[2:4]
-    short_month = start_iso[5:7]
-    iso_date = start_iso[:10]
+    # Google Sheets - Get the tab name for the current month
+    short_year, short_month, iso_date = split_date_string(start_iso)
     current_tab_name = get_tab_name(short_year, short_month)
     tabs_in_sheet = list_sheet_tabs()
 
@@ -256,6 +267,10 @@ def main():
     #     print(task_name)
     #     print(completed_at)
     #     print(project_id)
+
+    print(string_to_insert)
+    print(cell_name)
+
 
     write_to_google_sheet(string_to_insert, cell_name)
 
