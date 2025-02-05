@@ -17,11 +17,8 @@ GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID" )
 SERVICE_ACCOUNT_FILE = os.getenv("SERVICE_ACCOUNT_FILE")
 TODOIST_PROJECT_NAME = os.getenv("TODOIST_PROJECT_NAME")
 
-
-
-# The range in your sheet where the data should be written.
-# For example, starting at cell A1 of a sheet named "Sheet1".
-SHEET_RANGE = 'Sheet1!A1'
+TODOIST_GET_PROJECTS_URL = "https://api.todoist.com/rest/v2/projects"
+TODOIST_GET_ALL_COMPLETED_URL = "https://api.todoist.com/sync/v9/completed/get_all"
 
 # --------------------------
 # FUNCTIONS
@@ -46,7 +43,7 @@ def get_project_id(project_name):
     Calls the Todoist API to get all projects.
     Returns a list of projects.
     """
-    url = "https://api.todoist.com/rest/v2/projects"
+    url = TODOIST_GET_PROJECTS_URL
     headers = {
         "authorization": f"Bearer {TODOIST_API_TOKEN}"  # use your own API token
     }
@@ -66,7 +63,7 @@ def get_completed_tasks(start_iso, end_iso, project_id = "1233330094"):
     Calls the Todoist API to get all completed tasks between the specified times.
     Returns a list of tasks.
     """
-    url = "https://api.todoist.com/sync/v9/completed/get_all"
+    url = TODOIST_GET_ALL_COMPLETED_URL
     headers = {
         "Authorization": f"Bearer {TODOIST_API_TOKEN}"
     }
@@ -76,7 +73,6 @@ def get_completed_tasks(start_iso, end_iso, project_id = "1233330094"):
         "limit": 100,         # adjust the limit if you expect more tasks
         "project_id": project_id       # filter by project ID; set to 0 for all projects 
     }
-    # TODO: Make project_id dynamic
 
     response = requests.get(url, headers=headers, params=params)
     response.raise_for_status()  # will raise an error if the request failed
@@ -100,25 +96,11 @@ def write_to_google_sheet(value_to_insert, cell_name):
         spreadsheetId=GOOGLE_SHEET_ID,
         range=cell_name,
         valueInputOption="RAW",         # write the data as-is
-        # insertDataOption="OVERWRITE",   # insert new rows for the data
         body=body
     ).execute()
     
-    # wirte a value to a specific cell in the Google Sheet
-    # cell_name = "Sheet1!A1"
-    # body = {"values": [["Hello, world!"]]}
-    # result = service.spreadsheets().values().update(
-    #     spreadsheetId=GOOGLE_SHEET_ID,
-    #     range=cell_name,
-    #     valueInputOption="RAW",
-    #     body=body
-    # ).execute()
-
-
-
     updated_cells = result.get("updates", {}).get("updatedCells", 0)
     print(f"Successfully appended {updated_cells} cells to the Google Sheet.")
-
 
 def list_sheet_tabs():
     """
@@ -158,7 +140,6 @@ def get_rows_from_google_sheet(tab_name):
     values = result.get("values", [])
     return values
 
-
 def get_tab_name(year, month):
     """
     Generates a tab name based on the given year and month.
@@ -189,7 +170,6 @@ def split_date_string(date_iso_string):
     short_iso_date = date_iso_string[:10]
     return short_year, short_month, short_iso_date
 
-
 # --------------------------
 # MAIN EXECUTION
 # --------------------------
@@ -219,8 +199,9 @@ def main():
     if current_tab_name not in tabs_in_sheet:
         print(f"Tab '{current_tab_name}' not found in the Google Sheet.")
         return
+
     rows = get_rows_from_google_sheet(current_tab_name)
-    # loop through the rows and print them
+
     i = 1
     for row in rows:
         if len(row) > 0:
@@ -230,59 +211,14 @@ def main():
         i += 1
 
     cell_name = f"{current_tab_name}!E{i}"
-    
-    
-
-
-    # print(rows)
-
-    # print(tasks)
-    # # Prepare the rows for Google Sheets.
-    # # (Optional) Add a header row. Remove or adjust as needed.
-    # rows = [["Task Name", "Completed At", "Project ID"]]
-
-    # TODO: Maybe send it off tho OpenAI to get a summary of the tasks
-
-    # Open the Google Sheet
-    # Find the row with the same date as start_iso date in the A column
-    # Write the tasks names, semi colon separted, to the Google Sheet in columns D for that row
-
-
-
-    print("----------------")
-
-  
-    
-    # Find correct row in the Google Sheet using the date format YYYY-MM-DD
-
-    
 
     string_to_insert = ""
     for task in tasks:
-        # Extract relevant details; adjust keys as needed based on the Todoist response.
         task_name = task.get("content", "")
         string_to_insert += task_name + "; "
-    #     completed_at = task.get("completed_at", "")
-    #     project_id = task.get("project_id", "")
-    #     print(task_name)
-    #     print(completed_at)
-    #     print(project_id)
 
-    print(string_to_insert)
-    print(cell_name)
-
-
+    print(f"Inserting the following tasks into cell {cell_name}: {string_to_insert}")
     write_to_google_sheet(string_to_insert, cell_name)
-
-    # for task in tasks:
-    #     # Extract relevant details; adjust keys as needed based on the Todoist response.
-    #     task_name = task.get("content", "")
-    #     completed_at = task.get("completed_at", "")
-    #     project_id = task.get("project_id", "")
-    #     rows.append([task_name, completed_at, str(project_id)])
-    
-    # # Write the rows to the Google Sheet
-    # write_to_google_sheet(rows)
 
 if __name__ == "__main__":
     main()
