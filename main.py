@@ -85,7 +85,7 @@ def get_completed_tasks(start_iso, end_iso, project_id = "1233330094"):
     # The returned JSON contains an 'items' key with the list of tasks.
     return data.get("items", [])
 
-def write_to_google_sheet(value_to_insert):
+def write_to_google_sheet(value_to_insert, cell_name):
     """
     Appends the given value_to_insert to the Google Sheet.
     """
@@ -95,10 +95,10 @@ def write_to_google_sheet(value_to_insert):
     )
     service = build('sheets', 'v4', credentials=credentials)
     
-    body = {"values": value_to_insert}
+    body = {"values": [value_to_insert]}
     result = service.spreadsheets().values().append(
         spreadsheetId=GOOGLE_SHEET_ID,
-        range=SHEET_RANGE,
+        range=cell_name,
         valueInputOption="RAW",         # write the data as-is
         # insertDataOption="OVERWRITE",   # insert new rows for the data
         body=body
@@ -220,6 +220,7 @@ def main():
 
     cell_name = f"{current_tab_name}!E{i}"
     
+    
 
 
     # print(rows)
@@ -245,16 +246,18 @@ def main():
 
     
 
-    
-    # for task in tasks:
-    #     # Extract relevant details; adjust keys as needed based on the Todoist response.
-    #     task_name = task.get("content", "")
+    string_to_insert = ""
+    for task in tasks:
+        # Extract relevant details; adjust keys as needed based on the Todoist response.
+        task_name = task.get("content", "")
+        string_to_insert += task_name + "; "
     #     completed_at = task.get("completed_at", "")
     #     project_id = task.get("project_id", "")
     #     print(task_name)
     #     print(completed_at)
     #     print(project_id)
 
+    write_to_google_sheet(string_to_insert, cell_name)
 
     # for task in tasks:
     #     # Extract relevant details; adjust keys as needed based on the Todoist response.
