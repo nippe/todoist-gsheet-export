@@ -1,4 +1,4 @@
-import requests
+import httpx
 import datetime
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
@@ -48,7 +48,7 @@ def get_project_id(project_name):
         "authorization": f"Bearer {TODOIST_API_TOKEN}"  # use your own API token
     }
 
-    response = requests.get(url, headers=headers)
+    response = httpx.get(url, headers=headers)
     response.raise_for_status()  # will raise an error if the request failed
     projects = response.json()
 
@@ -74,7 +74,7 @@ def get_completed_tasks(start_iso, end_iso, project_id = "1233330094"):
         "project_id": project_id       # filter by project ID; set to 0 for all projects 
     }
 
-    response = requests.get(url, headers=headers, params=params)
+    response = httpx.get(url, headers=headers, params=params)
     response.raise_for_status()  # will raise an error if the request failed
     data = response.json()
     
