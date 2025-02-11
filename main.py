@@ -14,7 +14,7 @@ load_dotenv()
 # Replace these with your own values:
 TODOIST_API_TOKEN = os.getenv("TODOIST_API_TOKEN")
 GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID" )
-SERVICE_ACCOUNT_FILE = os.getenv("SERVICE_ACCOUNT_FILE")
+SERVICE_ACCOUNT_FILE = os.path.join(os.getcwd(), os.getenv("SERVICE_ACCOUNT_FILE"))
 TODOIST_PROJECT_NAME = os.getenv("TODOIST_PROJECT_NAME")
 
 TODOIST_GET_PROJECTS_URL = "https://api.todoist.com/rest/v2/projects"
