@@ -216,8 +216,9 @@ def main():
     for task in tasks:
         task_name = task.get("content", "")
         string_to_insert += task_name + "; "
+        print(f"Task: {task_name}")
 
-    print(f"Inserting the following tasks into cell {cell_name}: {string_to_insert}")
+    print(f"Inserting the following tasks into cell {cell_name}")
     write_to_google_sheet(string_to_insert, cell_name)
 
 if __name__ == "__main__":
