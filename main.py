@@ -45,7 +45,7 @@ def get_project_id(project_name):
     """
     url = TODOIST_GET_PROJECTS_URL
     headers = {
-        "authorization": f"Bearer {TODOIST_API_TOKEN}"  # use your own API token
+        "Authorization": f"Bearer {TODOIST_API_TOKEN}"  # use your own API token
     }
 
     response = httpx.get(url, headers=headers)
@@ -175,11 +175,11 @@ def split_date_string(date_iso_string):
 # --------------------------
 
 def main():
+
     # Determine the ISO date range for yesterday
     start_iso, end_iso = get_yesterday_iso_range()
     print(f"Fetching tasks completed between {start_iso} and {end_iso}.")
 
-    
     # Todoist - get project id for the specified project name
     project_id = get_project_id(TODOIST_PROJECT_NAME)
 
@@ -206,7 +206,7 @@ def main():
     for row in rows:
         if len(row) > 0:
             if  row[0] == iso_date:
-                print(f"Found the row: {i} - {row}")
+                print(f"Found the row: {i} - {row=}")
                 break
         i += 1
 
