@@ -188,7 +188,7 @@ def main():
     
     if not tasks:
         print("No completed tasks found for yesterday.")
-        return
+        # return
     
     # Google Sheets - Get the tab name for the current month
     short_year, short_month, iso_date = split_date_string(start_iso)
@@ -213,6 +213,9 @@ def main():
     cell_name = f"{current_tab_name}!E{i}"
 
     string_to_insert = ""
+    if not tasks:
+        string_to_insert = "N/A"
+        
     for task in tasks:
         task_name = task.get("content", "")
         string_to_insert += task_name + "; "
