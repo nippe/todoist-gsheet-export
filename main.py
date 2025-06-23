@@ -232,8 +232,8 @@ def main():
         cell_value = get_cell_value(cell_to_check)
 
         if cell_value:
-            print(f"Cell {cell_to_check} already has data: '{cell_value}'. Exiting.")
-            break
+            print(f"Cell {cell_to_check} already has data: '{cell_value}'. Skipping.")
+            continue
 
         # Cell is empty, get tasks from Todoist
         print(f"Cell {cell_to_check} is empty. Fetching tasks from Todoist.")
