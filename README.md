@@ -23,4 +23,4 @@ Do a `cp .env.example .env` and update the `.env` file with the values aquired a
 ## Ideas
 
 ### Backfill days
-The idea is for the program to look backards, day by day and if the field is empty in the google sheet see if any tasks are available - otherwise add "N/A" so it isn't empty in the future :D 
+The idea is for the program to look backwards, day by day and if the field is empty in the google sheet see if any tasks are available - otherwise add "N/A" so it isn't empty in the future :D 
