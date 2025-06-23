@@ -18,3 +18,9 @@ pip install python-dotenv requests google-api-python-client google-auth
 6. Export the service accounts creds as JSON
 
 Do a `cp .env.example .env` and update the `.env` file with the values aquired above.
+
+
+## Ideas
+
+### Backfill days
+The idea is for the program to look backwards, day by day and if the field is empty in the google sheet see if any tasks are available - otherwise add "N/A" so it isn't empty in the future :D 

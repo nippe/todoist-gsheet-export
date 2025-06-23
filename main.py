@@ -24,18 +24,17 @@ TODOIST_GET_ALL_COMPLETED_URL = "https://api.todoist.com/sync/v9/completed/get_a
 # FUNCTIONS
 # --------------------------
 
-def get_yesterday_iso_range():
+def get_day_iso_range(days_ago=1):
     """
     Returns the start and end datetime strings in ISO format (with Z suffix for UTC)
-    for yesterday.
+    for a given number of days ago.
     """
-    # Get current UTC date and subtract one day for yesterday.
-    today = datetime.datetime.utcnow().date()
-    yesterday = today - datetime.timedelta(days=1)
+    # Get current UTC date and subtract the specified number of days.
+    target_date = datetime.datetime.utcnow().date() - datetime.timedelta(days=days_ago)
     
-    # Define the start (00:00:00) and end (23:59:59.999999) of yesterday.
-    start = datetime.datetime.combine(yesterday, datetime.time.min).isoformat() + 'Z'
-    end = datetime.datetime.combine(yesterday, datetime.time.max).isoformat() + 'Z'
+    # Define the start (00:00:00) and end (23:59:59.999999) of the target day.
+    start = datetime.datetime.combine(target_date, datetime.time.min).isoformat() + 'Z'
+    end = datetime.datetime.combine(target_date, datetime.time.max).isoformat() + 'Z'
     return start, end
 
 def get_project_id(project_name):
@@ -81,9 +80,9 @@ def get_completed_tasks(start_iso, end_iso, project_id = "1233330094"):
     # The returned JSON contains an 'items' key with the list of tasks.
     return data.get("items", [])
 
-def write_to_google_sheet(value_to_insert, cell_name):
+def update_google_sheet_cell(value_to_insert, cell_name):
     """
-    Appends the given value_to_insert to the Google Sheet.
+    Updates a specific cell in the Google Sheet with the given value.
     """
     scopes = ["https://www.googleapis.com/auth/spreadsheets"]
     credentials = Credentials.from_service_account_file(
@@ -92,15 +91,36 @@ def write_to_google_sheet(value_to_insert, cell_name):
     service = build('sheets', 'v4', credentials=credentials)
     
     body = {"values": [[value_to_insert]]}
-    result = service.spreadsheets().values().append(
+    result = service.spreadsheets().values().update(
         spreadsheetId=GOOGLE_SHEET_ID,
         range=cell_name,
         valueInputOption="RAW",         # write the data as-is
         body=body
     ).execute()
     
-    updated_cells = result.get("updates", {}).get("updatedCells", 0)
-    print(f"Successfully appended {updated_cells} cells to the Google Sheet.")
+    updated_cells = result.get("updatedCells", 0)
+    print(f"Successfully updated {updated_cells} cells in the Google Sheet.")
+
+def get_cell_value(cell_name):
+    """
+    Retrieves the value of a specific cell from the Google Sheet.
+    """
+    scopes = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
+    credentials = Credentials.from_service_account_file(
+        SERVICE_ACCOUNT_FILE, scopes=scopes
+    )
+    service = build('sheets', 'v4', credentials=credentials)
+    
+    # Get the values from the specified tab in the Google Sheet.
+    result = service.spreadsheets().values().get(
+        spreadsheetId=GOOGLE_SHEET_ID,
+        range=cell_name
+    ).execute()
+    
+    values = result.get("values", [])
+    if not values or not values[0]:
+        return None
+    return values[0][0]
 
 def list_sheet_tabs():
     """
@@ -176,50 +196,62 @@ def split_date_string(date_iso_string):
 
 def main():
 
-    # Determine the ISO date range for yesterday
-    start_iso, end_iso = get_yesterday_iso_range()
-    print(f"Fetching tasks completed between {start_iso} and {end_iso}.")
-
     # Todoist - get project id for the specified project name
     project_id = get_project_id(TODOIST_PROJECT_NAME)
 
-    # Todoist - Get the list of completed tasks from Todoist
-    tasks = get_completed_tasks(start_iso, end_iso, project_id)
-    
-    if not tasks:
-        print("No completed tasks found for yesterday.")
-        return
-    
-    # Google Sheets - Get the tab name for the current month
-    short_year, short_month, iso_date = split_date_string(start_iso)
-    current_tab_name = get_tab_name(short_year, short_month)
-    tabs_in_sheet = list_sheet_tabs()
+    for days_ago in range(1, 8):
+        # Determine the ISO date range for the specific day
+        start_iso, end_iso = get_day_iso_range(days_ago)
+        print(f"Checking for tasks completed on {start_iso[:10]}")
 
-      # Verify that tab exists in the Google Sheet
-    if current_tab_name not in tabs_in_sheet:
-        print(f"Tab '{current_tab_name}' not found in the Google Sheet.")
-        return
+        # Google Sheets - Get the tab name for the month of the date we are checking
+        short_year, short_month, iso_date = split_date_string(start_iso)
+        current_tab_name = get_tab_name(short_year, short_month)
+        tabs_in_sheet = list_sheet_tabs()
 
-    rows = get_rows_from_google_sheet(current_tab_name)
+        # Verify that tab exists in the Google Sheet
+        if current_tab_name not in tabs_in_sheet:
+            print(f"Tab '{current_tab_name}' not found in the Google Sheet. Skipping.")
+            continue
 
-    i = 1
-    for row in rows:
-        if len(row) > 0:
-            if  row[0] == iso_date:
-                print(f"Found the row: {i} - {row=}")
+        # Find the row for the date
+        rows = get_rows_from_google_sheet(current_tab_name)
+        row_index = -1
+        for i, row in enumerate(rows):
+            if len(row) > 0 and row[0] == iso_date:
+                row_index = i + 1
                 break
-        i += 1
 
-    cell_name = f"{current_tab_name}!E{i}"
+        if row_index == -1:
+            print(f"Date {iso_date} not found in sheet '{current_tab_name}'. Skipping.")
+            continue
 
-    string_to_insert = ""
-    for task in tasks:
-        task_name = task.get("content", "")
-        string_to_insert += task_name + "; "
-        print(f"  ->  Task: {task_name}")
+        cell_to_check = f"{current_tab_name}!E{row_index}"
 
-    print(f"\n--------\nInserting the following tasks into cell {cell_name}\n--------\n")
-    write_to_google_sheet(string_to_insert, cell_name)
+        # Check if cell is empty
+        cell_value = get_cell_value(cell_to_check)
+
+        if cell_value:
+            print(f"Cell {cell_to_check} already has data: '{cell_value}'. Skipping.")
+            continue
+
+        # Cell is empty, get tasks from Todoist
+        print(f"Cell {cell_to_check} is empty. Fetching tasks from Todoist.")
+        tasks = get_completed_tasks(start_iso, end_iso, project_id)
+
+        string_to_insert = ""
+        if not tasks:
+            print(f"No completed tasks found for {iso_date}.")
+            string_to_insert = "N/A"
+        else:
+            task_contents = [task.get("content", "") for task in tasks]
+            string_to_insert = "; ".join(task_contents)
+            for task_name in task_contents:
+                print(f"  ->  Task: {task_name}")
+
+        print(f"\n--------\nInserting the following into cell {cell_to_check}\n--------\n")
+        update_google_sheet_cell(string_to_insert, cell_to_check)
+
 
 if __name__ == "__main__":
     main()
