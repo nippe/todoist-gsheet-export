@@ -4,6 +4,9 @@ from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 import os
 from dotenv import load_dotenv
+import time
+import logging
+from typing import Optional, List
 
 
 # --------------------------
@@ -20,6 +23,66 @@ TODOIST_PROJECT_NAME = os.getenv("TODOIST_PROJECT_NAME")
 TODOIST_GET_PROJECTS_URL = "https://api.todoist.com/rest/v2/projects"
 TODOIST_GET_ALL_COMPLETED_URL = "https://api.todoist.com/sync/v9/completed/get_all"
 
+# --------------------------
+# CONFIGURATION VALIDATION
+# --------------------------
+
+def validate_configuration():
+    """
+    Validate that all required configuration is present.
+    """
+    required_vars = {
+        "TODOIST_API_TOKEN": TODOIST_API_TOKEN,
+        "GOOGLE_SHEET_ID": GOOGLE_SHEET_ID,
+        "SERVICE_ACCOUNT_FILE": SERVICE_ACCOUNT_FILE,
+        "TODOIST_PROJECT_NAME": TODOIST_PROJECT_NAME
+    }
+    
+    missing_vars = [var for var, value in required_vars.items() if not value]
+    if missing_vars:
+        raise ValueError(f"Missing required environment variables: {', '.join(missing_vars)}")
+    
+    # Check if service account file exists
+    if not os.path.exists(SERVICE_ACCOUNT_FILE):
+        raise FileNotFoundError(f"Service account file not found: {SERVICE_ACCOUNT_FILE}")
+    
+    print("Configuration validation passed.")
+
+# --------------------------
+# GOOGLE SHEETS SERVICE
+# --------------------------
+
+def get_google_sheets_service():
+    """
+    Create and return a Google Sheets service instance.
+    """
+    scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+    try:
+        credentials = Credentials.from_service_account_file(
+            SERVICE_ACCOUNT_FILE, scopes=scopes
+        )
+        service = build('sheets', 'v4', credentials=credentials)
+        return service
+    except Exception as e:
+        raise Exception(f"Failed to create Google Sheets service: {str(e)}")
+
+# --------------------------
+# API RETRY LOGIC
+# --------------------------
+
+def retry_api_call(func, max_retries=3, delay=1):
+    """
+    Retry an API call with exponential backoff.
+    """
+    for attempt in range(max_retries):
+        try:
+            return func()
+        except Exception as e:
+            if attempt == max_retries - 1:
+                raise e
+            print(f"API call failed (attempt {attempt + 1}/{max_retries}): {str(e)}")
+            time.sleep(delay * (2 ** attempt))  # Exponential backoff
+    
 # --------------------------
 # FUNCTIONS
 # --------------------------
@@ -40,125 +103,128 @@ def get_day_iso_range(days_ago=1):
 def get_project_id(project_name):
     """
     Calls the Todoist API to get all projects.
-    Returns a list of projects.
+    Returns the project ID for the specified project name.
     """
-    url = TODOIST_GET_PROJECTS_URL
-    headers = {
-        "Authorization": f"Bearer {TODOIST_API_TOKEN}"  # use your own API token
-    }
-
-    response = httpx.get(url, headers=headers)
-    response.raise_for_status()  # will raise an error if the request failed
-    projects = response.json()
-
-    for project in projects:
-        if project['name'] == project_name:
-            return project['id']
+    def _make_request():
+        url = TODOIST_GET_PROJECTS_URL
+        headers = {
+            "Authorization": f"Bearer {TODOIST_API_TOKEN}"
+        }
+        response = httpx.get(url, headers=headers)
+        response.raise_for_status()
+        return response.json()
     
-    raise ValueError(f"Project '{project_name}' not found.")
+    try:
+        projects = retry_api_call(_make_request)
+        for project in projects:
+            if project['name'] == project_name:
+                return project['id']
+        raise ValueError(f"Project '{project_name}' not found.")
+    except Exception as e:
+        raise Exception(f"Failed to get project ID: {str(e)}")
 
-def get_completed_tasks(start_iso, end_iso, project_id = "1233330094"):
+def get_completed_tasks(start_iso, end_iso, project_id):
     """
     Calls the Todoist API to get all completed tasks between the specified times.
     Returns a list of tasks.
     """
-    url = TODOIST_GET_ALL_COMPLETED_URL
-    headers = {
-        "Authorization": f"Bearer {TODOIST_API_TOKEN}"
-    }
-    params = {
-        "since": start_iso,  # start datetime for filtering completed tasks
-        "until": end_iso,    # end datetime for filtering completed tasks
-        "limit": 100,         # adjust the limit if you expect more tasks
-        "project_id": project_id       # filter by project ID; set to 0 for all projects 
-    }
-
-    response = httpx.get(url, headers=headers, params=params)
-    response.raise_for_status()  # will raise an error if the request failed
-    data = response.json()
+    def _make_request():
+        url = TODOIST_GET_ALL_COMPLETED_URL
+        headers = {
+            "Authorization": f"Bearer {TODOIST_API_TOKEN}"
+        }
+        params = {
+            "since": start_iso,
+            "until": end_iso,
+            "limit": 100,
+            "project_id": project_id
+        }
+        response = httpx.get(url, headers=headers, params=params)
+        response.raise_for_status()
+        return response.json()
     
-    # The returned JSON contains an 'items' key with the list of tasks.
-    return data.get("items", [])
+    try:
+        data = retry_api_call(_make_request)
+        return data.get("items", [])
+    except Exception as e:
+        raise Exception(f"Failed to get completed tasks: {str(e)}")
 
-def update_google_sheet_cell(value_to_insert, cell_name):
+def update_google_sheet_cell(service, value_to_insert, cell_name):
     """
     Updates a specific cell in the Google Sheet with the given value.
     """
-    scopes = ["https://www.googleapis.com/auth/spreadsheets"]
-    credentials = Credentials.from_service_account_file(
-        SERVICE_ACCOUNT_FILE, scopes=scopes
-    )
-    service = build('sheets', 'v4', credentials=credentials)
+    def _make_request():
+        body = {"values": [[value_to_insert]]}
+        result = service.spreadsheets().values().update(
+            spreadsheetId=GOOGLE_SHEET_ID,
+            range=cell_name,
+            valueInputOption="RAW",
+            body=body
+        ).execute()
+        return result
     
-    body = {"values": [[value_to_insert]]}
-    result = service.spreadsheets().values().update(
-        spreadsheetId=GOOGLE_SHEET_ID,
-        range=cell_name,
-        valueInputOption="RAW",         # write the data as-is
-        body=body
-    ).execute()
-    
-    updated_cells = result.get("updatedCells", 0)
-    print(f"Successfully updated {updated_cells} cells in the Google Sheet.")
+    try:
+        result = retry_api_call(_make_request)
+        updated_cells = result.get("updatedCells", 0)
+        print(f"Successfully updated {updated_cells} cells in the Google Sheet.")
+    except Exception as e:
+        raise Exception(f"Failed to update Google Sheet cell {cell_name}: {str(e)}")
 
-def get_cell_value(cell_name):
+def get_cell_value(service, cell_name):
     """
     Retrieves the value of a specific cell from the Google Sheet.
     """
-    scopes = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
-    credentials = Credentials.from_service_account_file(
-        SERVICE_ACCOUNT_FILE, scopes=scopes
-    )
-    service = build('sheets', 'v4', credentials=credentials)
+    def _make_request():
+        result = service.spreadsheets().values().get(
+            spreadsheetId=GOOGLE_SHEET_ID,
+            range=cell_name
+        ).execute()
+        return result
     
-    # Get the values from the specified tab in the Google Sheet.
-    result = service.spreadsheets().values().get(
-        spreadsheetId=GOOGLE_SHEET_ID,
-        range=cell_name
-    ).execute()
-    
-    values = result.get("values", [])
-    if not values or not values[0]:
-        return None
-    return values[0][0]
+    try:
+        result = retry_api_call(_make_request)
+        values = result.get("values", [])
+        if not values or not values[0]:
+            return None
+        return values[0][0]
+    except Exception as e:
+        raise Exception(f"Failed to get cell value from {cell_name}: {str(e)}")
 
-def list_sheet_tabs():
+def list_sheet_tabs(service):
     """
     Retrieves all the tab names from the specified Google Sheet.
     """
-    scopes = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
-    credentials = Credentials.from_service_account_file(
-        SERVICE_ACCOUNT_FILE, scopes=scopes
-    )
-    service = build('sheets', 'v4', credentials=credentials)
+    def _make_request():
+        spreadsheet = service.spreadsheets().get(
+            spreadsheetId=GOOGLE_SHEET_ID
+        ).execute()
+        return spreadsheet
     
-    # Get the spreadsheet metadata, which includes the sheet (tab) info.
-    spreadsheet = service.spreadsheets().get(
-        spreadsheetId=GOOGLE_SHEET_ID
-    ).execute()
-    
-    sheets = spreadsheet.get('sheets', [])
-    sheet_titles = [sheet.get("properties", {}).get("title") for sheet in sheets]
-    return sheet_titles
+    try:
+        spreadsheet = retry_api_call(_make_request)
+        sheets = spreadsheet.get('sheets', [])
+        sheet_titles = [sheet.get("properties", {}).get("title") for sheet in sheets]
+        return sheet_titles
+    except Exception as e:
+        raise Exception(f"Failed to list sheet tabs: {str(e)}")
 
-def get_rows_from_google_sheet(tab_name):
+def get_rows_from_google_sheet(service, tab_name):
     """
     Retrieves all the rows from the specified tab in the Google Sheet.
     """
-    scopes = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
-    credentials = Credentials.from_service_account_file(
-        SERVICE_ACCOUNT_FILE, scopes=scopes
-    )
-    service = build('sheets', 'v4', credentials=credentials)
+    def _make_request():
+        result = service.spreadsheets().values().get(
+            spreadsheetId=GOOGLE_SHEET_ID,
+            range=f"{tab_name}!A1:Z"
+        ).execute()
+        return result
     
-    # Get the values from the specified tab in the Google Sheet.
-    result = service.spreadsheets().values().get(
-        spreadsheetId=GOOGLE_SHEET_ID,
-        range=f"{tab_name}!A1:Z"
-    ).execute()
-    # print(result)
-    values = result.get("values", [])
-    return values
+    try:
+        result = retry_api_call(_make_request)
+        values = result.get("values", [])
+        return values
+    except Exception as e:
+        raise Exception(f"Failed to get rows from sheet tab {tab_name}: {str(e)}")
 
 def get_tab_name(year, month):
     """
@@ -195,62 +261,84 @@ def split_date_string(date_iso_string):
 # --------------------------
 
 def main():
+    try:
+        # Validate configuration before starting
+        validate_configuration()
+        
+        # Create Google Sheets service once
+        print("Initializing Google Sheets service...")
+        sheets_service = get_google_sheets_service()
+        
+        # Todoist - get project id for the specified project name
+        print(f"Getting project ID for '{TODOIST_PROJECT_NAME}'...")
+        project_id = get_project_id(TODOIST_PROJECT_NAME)
+        print(f"Project ID: {project_id}")
 
-    # Todoist - get project id for the specified project name
-    project_id = get_project_id(TODOIST_PROJECT_NAME)
+        for days_ago in range(1, 8):
+            try:
+                # Determine the ISO date range for the specific day
+                start_iso, end_iso = get_day_iso_range(days_ago)
+                print(f"Checking for tasks completed on {start_iso[:10]}")
 
-    for days_ago in range(1, 8):
-        # Determine the ISO date range for the specific day
-        start_iso, end_iso = get_day_iso_range(days_ago)
-        print(f"Checking for tasks completed on {start_iso[:10]}")
+                # Google Sheets - Get the tab name for the month of the date we are checking
+                short_year, short_month, iso_date = split_date_string(start_iso)
+                current_tab_name = get_tab_name(short_year, short_month)
+                tabs_in_sheet = list_sheet_tabs(sheets_service)
 
-        # Google Sheets - Get the tab name for the month of the date we are checking
-        short_year, short_month, iso_date = split_date_string(start_iso)
-        current_tab_name = get_tab_name(short_year, short_month)
-        tabs_in_sheet = list_sheet_tabs()
+                # Verify that tab exists in the Google Sheet
+                if current_tab_name not in tabs_in_sheet:
+                    print(f"Tab '{current_tab_name}' not found in the Google Sheet. Skipping.")
+                    continue
 
-        # Verify that tab exists in the Google Sheet
-        if current_tab_name not in tabs_in_sheet:
-            print(f"Tab '{current_tab_name}' not found in the Google Sheet. Skipping.")
-            continue
+                # Find the row for the date
+                rows = get_rows_from_google_sheet(sheets_service, current_tab_name)
+                row_index = -1
+                for i, row in enumerate(rows):
+                    if len(row) > 0 and row[0] == iso_date:
+                        row_index = i + 1
+                        break
 
-        # Find the row for the date
-        rows = get_rows_from_google_sheet(current_tab_name)
-        row_index = -1
-        for i, row in enumerate(rows):
-            if len(row) > 0 and row[0] == iso_date:
-                row_index = i + 1
-                break
+                if row_index == -1:
+                    print(f"Date {iso_date} not found in sheet '{current_tab_name}'. Skipping.")
+                    continue
 
-        if row_index == -1:
-            print(f"Date {iso_date} not found in sheet '{current_tab_name}'. Skipping.")
-            continue
+                cell_to_check = f"{current_tab_name}!E{row_index}"
 
-        cell_to_check = f"{current_tab_name}!E{row_index}"
+                # Check if cell is empty
+                cell_value = get_cell_value(sheets_service, cell_to_check)
 
-        # Check if cell is empty
-        cell_value = get_cell_value(cell_to_check)
+                if cell_value:
+                    print(f"Cell {cell_to_check} already has data: '{cell_value}'. Skipping.")
+                    continue
 
-        if cell_value:
-            print(f"Cell {cell_to_check} already has data: '{cell_value}'. Skipping.")
-            continue
+                # Cell is empty, get tasks from Todoist
+                print(f"Cell {cell_to_check} is empty. Fetching tasks from Todoist.")
+                tasks = get_completed_tasks(start_iso, end_iso, project_id)
 
-        # Cell is empty, get tasks from Todoist
-        print(f"Cell {cell_to_check} is empty. Fetching tasks from Todoist.")
-        tasks = get_completed_tasks(start_iso, end_iso, project_id)
+                string_to_insert = ""
+                if not tasks:
+                    print(f"No completed tasks found for {iso_date}.")
+                    string_to_insert = "N/A"
+                else:
+                    task_contents = [task.get("content", "") for task in tasks]
+                    string_to_insert = "; ".join(task_contents)
+                    for task_name in task_contents:
+                        print(f"  ->  Task: {task_name}")
 
-        string_to_insert = ""
-        if not tasks:
-            print(f"No completed tasks found for {iso_date}.")
-            string_to_insert = "N/A"
-        else:
-            task_contents = [task.get("content", "") for task in tasks]
-            string_to_insert = "; ".join(task_contents)
-            for task_name in task_contents:
-                print(f"  ->  Task: {task_name}")
-
-        print(f"\n--------\nInserting the following into cell {cell_to_check}\n--------\n")
-        update_google_sheet_cell(string_to_insert, cell_to_check)
+                print(f"\n--------\nInserting the following into cell {cell_to_check}\n--------\n")
+                update_google_sheet_cell(sheets_service, string_to_insert, cell_to_check)
+                
+            except Exception as e:
+                print(f"Error processing day {days_ago}: {str(e)}")
+                continue
+                
+        print("\nTask processing completed successfully!")
+        
+    except Exception as e:
+        print(f"Fatal error: {str(e)}")
+        return 1
+    
+    return 0
 
 
 if __name__ == "__main__":
