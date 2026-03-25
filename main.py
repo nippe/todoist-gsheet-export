@@ -20,8 +20,10 @@ GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID" )
 SERVICE_ACCOUNT_FILE = os.path.join(os.getcwd(), os.getenv("SERVICE_ACCOUNT_FILE"))
 TODOIST_PROJECT_NAME = os.getenv("TODOIST_PROJECT_NAME")
 
-TODOIST_GET_PROJECTS_URL = "https://api.todoist.com/rest/v2/projects"
-TODOIST_GET_ALL_COMPLETED_URL = "https://api.todoist.com/sync/v9/completed/get_all"
+# TODOIST_GET_PROJECTS_URL = "https://api.todoist.com/rest/v2/projects"
+TODOIST_GET_PROJECTS_URL = "https://api.todoist.com/api/v1/projects"
+# TODOIST_GET_ALL_COMPLETED_URL = "https://api.todoist.com/sync/v9/completed/get_all"
+TODOIST_GET_ALL_COMPLETED_URL = "https://api.todoist.com/api/v1/tasks/completed/by_completion_date"
 
 # --------------------------
 # CONFIGURATION VALIDATION
@@ -115,8 +117,13 @@ def get_project_id(project_name):
         return response.json()
     
     try:
-        projects = retry_api_call(_make_request)
+        projects = retry_api_call(_make_request).get('results', [])
+
         for project in projects:
+            print(project)
+            print(project['name'])
+            print(project['id'])
+            print('------------------------------   ---------------------------------')
             if project['name'] == project_name:
                 return project['id']
         raise ValueError(f"Project '{project_name}' not found.")
@@ -274,7 +281,7 @@ def main():
         project_id = get_project_id(TODOIST_PROJECT_NAME)
         print(f"Project ID: {project_id}")
 
-        for days_ago in range(1, 8):
+        for days_ago in range(8, 38):
             try:
                 # Determine the ISO date range for the specific day
                 start_iso, end_iso = get_day_iso_range(days_ago)
